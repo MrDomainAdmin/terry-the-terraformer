@@ -1,12 +1,14 @@
+#!/usr/bin/env python3
+
 import os
 import sys
 from prompt_toolkit import PromptSession, completion, prompt
 from prompt_toolkit.formatted_text import ANSI
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import WordCompleter, FuzzyCompleter
 from prompt_toolkit.completion.base import Completer
 from prompt_toolkit.document import Document
 from prompt_toolkit.shortcuts import print_formatted_text
-from completerUtil import CustomCompleter
+from completerUtil import ServerCompleter, DomainCompleter
 import subprocess
 import threading
 import selectors
@@ -93,6 +95,7 @@ class ProjectNameCompleter(Completer):
 
 # Custom completer for 'add', 'create', 'destroy', and other options.
 action_completer = WordCompleter(["add", "create", "destroy"])
+type_completer = WordCompleter(["server", "domain"])
 
 
 def main():
@@ -135,22 +138,81 @@ def main():
 
         # Check if the user selected "create" or add and provide server options accordingly.
         if action == "create" or action == "add":
-            server_options = session.prompt(
-                f"Enter options starting with server or domain: ",
-                completer=completion.FuzzyCompleter(CustomCompleter()),
-            )
+            command = f"./terry.py -f -o {project_name} {action} "
             while True:
+                server_type = session.prompt(
+                    f"Create a server or a domain? ",
+                    completer=completion.FuzzyCompleter(type_completer),
+                )
+                match server_type:
+                    case "server":
+                        print(
+                            """
+  -p, --provider [aws|digitalocean|azure|google|linode]
+                                  The cloud provider to use when creating the
+                                  server  [required]
+  -t, --type [bare|categorize|teamserver|lighthouse|redirector|mailserver]
+                                  The type of server to create  [required]
+  -sN, --name TEXT                Name of the server (used for creating
+                                  corresponding DNS records if you use the
+                                  "domain" command)
+  -cT, --container TEXT           Containers to install onto the server (must
+                                  be defined in container_mappings.yml to be
+                                  used)
+  -rT, --redirector_type [http|https|dns|custom]
+                                  Type redirector to build (options are
+                                  ['http', 'https', 'dns', 'custom'])
+  -r2, --redirect_to TEXT         Name / UUID of server to redirect to (or
+                                  just a FQDN / IP address for static
+                                  redirection)
+  -dI, --domain_to_impersonate TEXT
+                                  FQDN of the domain to impersonate when
+                                  traffic that doesn't match your C2
+                                  redirection rules hits a redirector (or just
+                                  domain to impersonate for categorization
+                                  server)
+  -d, --fqdn TEXT                 Domain and registrar to use in creation of
+                                  an A record for the resource formatted as
+                                  "<domain>:<registrar>" (Example: domain
+                                  example.com with registrar aws should be
+                                  "example.com:aws)"
+"""
+                        )
+                        server_options = session.prompt(
+                            f"Enter options for server ",
+                            completer=completion.FuzzyCompleter(ServerCompleter()),
+                        )
+                    case "domain":
+                        print(
+                            """
+  -p, --provider [aws|digitalocean|azure|google|linode|namecheap|cloudflare|godaddy]
+                                  The cloud/infrastructure provider to use
+                                  when creating the server  [required]
+  -d, --domain TEXT               FQDN to use in creation of an record type
+                                  "<type>" (if no subdomain provided, the root
+                                  will be used)  [required]
+  -t, --type TEXT                 The type of record to create
+  -v, --value TEXT                Value of the record (use this if you have a
+                                  STATIC DNS record that does not depend on
+                                  dynamic data returned from Terraform)
+  -sN, --server_name TEXT         Name / UUID of the server resource whose
+                                  public IP that you want to populate the
+                                  value of the record (a resource with this
+                                  name / uuid must exist in the build)
+                              """
+                        )
+                        server_options = session.prompt(
+                            f"Enter options for domain ",
+                            completer=completion.FuzzyCompleter(DomainCompleter()),
+                        )
+                command += f"{server_type} {server_options} "
                 response = prompt("Do you want to add more servers/domains? yes/no: ")
                 if response.lower() == "yes" or response.lower() == "y":
-                    server_options += " " + session.prompt(
-                        f"Enter options starting with server or domain: ",
-                        completer=completion.FuzzyCompleter(CustomCompleter()),
-                    )
+                    continue
                 elif response.lower() == "no" or response.lower() == "n":
                     break
                 else:
                     print("Please provide a valid response: y/yes/n/no")
-            command = f"./terry.py -f -o {project_name} {action} {server_options}"
             runprocess(command)
             sys.exit(0)
 
